@@ -221,11 +221,11 @@ def generate_configuration(latticefile):
             name = 'some_mags',
             elements = arr_c
         ))
-    arrs.append(dict(
-            type = 'pyaml.arrays.magnet',
-            name = 'some_bpms',
-            elements = arr_b
-        ))
+    # arrs.append(dict(
+    #         type = 'pyaml.arrays.magnet',
+    #         name = 'some_bpms',
+    #         elements = arr_b
+    #     ))
     
     hcors = input('Could you provide a wildcard (*) string for Hor. correctors (ex: HCOR*)? Press enter to use the default.')
     if hcors == '':
@@ -323,7 +323,8 @@ if __name__ == '__main__':
     quad = accelerator.design.magnet.get('QF_001001')
 
     # Use the quadrupole in the same way as before
-    quad.strength.get()
+    k = quad.strength.get()
+    print(f'{quad.name} strength = {k} 1/m')
 
 
 
