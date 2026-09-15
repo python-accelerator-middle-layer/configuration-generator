@@ -4,8 +4,8 @@
 # pip install accelerator-middle-layer
 # pip install accelerator-toolbox
 # pip install pyyaml
-# pip install pyaml-test-lattice
-
+# pip install git+https://github.com/python-accelerator-middle-layer/pyaml-test-lattice.git@main
+# pip install git+https://github.com/python-accelerator-middle-layer/pyaml-cs-oa.git@main
 
 import os
 import at
@@ -39,35 +39,50 @@ def generate_configuration(latticefile):
         at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
         uuid = 'UniqueID'
 
+    # control system
+
     ans = input('Which control system do you use (Epics/Tango)?')
+    control_system = ans
+
     if ans == 'Epics':
         cs = 'pyaml_cs_oa'
     elif ans == 'Tango':
-        cs = 'tango'
+        ans = input('Would you like to use Ophyd Asynch (oa) or simply pyTango (t)?')
+        if ans == 'oa':
+            cs = 'pyaml_cs_oa'
+        else:
+            cs = 'tango'
     else:
         raise ValueError('Either Epics or Tango')
 
+    print(control_system)
+    print(cs)
+    
+    if control_system =='Epics':
+            contr = dict(
+                type = f'{cs}.pyaml.controlsystem',
+                name = 'live',
+                backend= 'Epics',
+                prefix = 'your-epics-prefix:'
+                )
+    else:    # control_system == 'Tango':
+        if cs=='pyaml_cs_oa':
+            contr = {
+                'class': f'{cs}.controlsystem.OphydAsyncControlSystem',
+                'name': 'live',
+                'backend': 'tango',
+                'prefix':'//your-host-name:10000/',
+            }
+        else:
+            contr = dict(
+                type = f'{cs}.pyaml.controlsystem',
+                name = 'live',
+                tango_host = 'tango.host:10000',
+                catalog = 'your/catalog.yml'
+                )
+            
+    # Devices
 
-    # create an array with some quadrupoles
-    ind = r.get_uint32_index(at.Quadrupole)
-    arr_q = []
-    for i in ind[0:6]:
-        arr_q.append(r[i].__getattribute__(uuid))
-    
-    # create an array with some magnets (quad/sext)
-    ind = np.sort(np.concatenate((r.get_uint32_index(at.Quadrupole), r.get_uint32_index(at.Sextupole), r.get_uint32_index(at.Bend))))
-    arr_c = []
-    for i in ind[0:6]:
-        arr_c.append(r[i].__getattribute__(uuid))
-    
-    # create and array with some bpms
-    ind = r.get_uint32_index(at.Monitor)
-    arr_b = []
-    for i in ind[0:6]:
-        arr_b.append(r[i].__getattribute__(uuid))
-
-    # devices
-    
     cal_dir = './calibrations'
     if not os.path.exists(cal_dir):
         os.makedirs(cal_dir)
@@ -85,7 +100,7 @@ def generate_configuration(latticefile):
             if not(exists(quad_cal_file)):
                 kl=el.PolynomB[1]*el.Length  # 1/m
                 curve = np.array([np.linspace(0,100,11),np.linspace(0, kl*2, 11)]).T
-                np.savetxt(quad_cal_file, curve) # A vs 1/m
+                np.savetxt(quad_cal_file, curve, delimiter=',') # A vs 1/m
             
 
             d = dict(type = f'pyaml.magnet.quadrupole',
@@ -110,7 +125,7 @@ def generate_configuration(latticefile):
             if not(exists(sext_cal_file)):
                 kl=el.PolynomB[1]*el.Length  # 1/m2
                 curve = np.array([np.linspace(0,100,11),np.linspace(0, kl*2, 11)]).T
-                np.savetxt(sext_cal_file, curve) # A vs 1/m2
+                np.savetxt(sext_cal_file, curve, delimiter=',') # A vs 1/m2
 
             d = dict(type = f'pyaml.magnet.sextupole',
                     name = el.__getattribute__(uuid),
@@ -139,19 +154,18 @@ def generate_configuration(latticefile):
             d = dict(type= 'pyaml.rf.rf_plant',
                     name= 'DEFAULT_RF_PLANT',
                     masterclock = 'your/master/clock/device',
-                    transmitters= dict(
+                    transmitters= [dict(
                         type= 'pyaml.rf.rf_transmitter',
                         name= 'RFTRA',
-                        cavities= el.__getattribute__(uuid),
+                        cavities= [el.__getattribute__(uuid),],
                         harmonic= 1,
                         distribution= 1,
-                        voltage= 'your/voltage/device/name'),
+                        voltage= 'your/voltage/device/name')],
                         )
 
         if d != dict():
             devs.append(d)
     
-
     d=dict(type= 'pyaml.diagnostics.tune_monitor',
             name= 'BETATRON_TUNE',
             tune_h= 'your/beam-tune/main/Qh',
@@ -168,11 +182,95 @@ def generate_configuration(latticefile):
 
     d=dict( type= 'pyaml.tuning_tools.tune',
         name= 'DEFAULT_TUNE_CORRECTION',
-        quad_array_name= 'some_quads',
+        quad_array_name= 'QForTune',
         betatron_tune_name= 'BETATRON_TUNE',
         response_matrix= 'path/to/your/tune_response_matrix.csv')
     devs.append(d)
 
+    # arrays
+
+    # create an array with some quadrupoles
+    ind = r.get_uint32_index(at.Quadrupole)
+    arr_q = []
+    for i in ind[0:6]:
+        arr_q.append(r[i].__getattribute__(uuid))
+    
+    # create an array with some magnets (quad/sext)
+    ind = np.sort(np.concatenate((r.get_uint32_index(at.Quadrupole), 
+                                  r.get_uint32_index(at.Sextupole))))
+    arr_c = []
+    for i in ind[0:6]:
+        arr_c.append(r[i].__getattribute__(uuid))
+    
+    # create and array with some bpms
+    ind = r.get_uint32_index(at.Monitor)
+    arr_b = []
+    for i in ind[0:6]:
+        arr_b.append(r[i].__getattribute__(uuid))
+
+
+    arrs=[]
+    arrs.append(dict(
+            type = 'pyaml.arrays.magnet',
+            name = 'some_quads',
+            elements = arr_q
+        ))
+    
+    arrs.append(dict(
+            type = 'pyaml.arrays.magnet',
+            name = 'some_mags',
+            elements = arr_c
+        ))
+    arrs.append(dict(
+            type = 'pyaml.arrays.magnet',
+            name = 'some_bpms',
+            elements = arr_b
+        ))
+    
+    hcors = input('Could you provide a wildcard (*) string for Hor. correctors (ex: HCOR*)? Press enter to use the default.')
+    if hcors == '':
+        hcors = 'COR*'
+
+    d = dict(type= 'pyaml.arrays.magnet',
+            name= 'HCorr',
+            elements= [hcors])
+    arrs.append(d)
+
+    vcors = input('Could you provide a wildcard (*) string for Ver. correctors (ex: VCOR*)? Press enter to use the default.')
+    if vcors == '':
+        vcors = 'COR*'
+
+    d = dict(type= 'pyaml.arrays.magnet',
+            name= 'VCorr',
+            elements= [vcors])
+    arrs.append(d)
+
+    bpms = input('Could you provide a wildcard (*) string for bpms (ex: BPM*)? Press enter to use the default.')
+    if bpms == '':
+        bpms = 'BPM*'
+    
+    d = dict(type= 'pyaml.arrays.bpm',
+            name= 'BPM',
+            elements= [bpms])
+    arrs.append(d)
+
+    qfs = input('Could you provide a wildcard (*) string for focussing quadrupole used for tune correction (ex: QF*)? Press enter to use the default.')
+    if qfs == '':
+        qfs = 'QF1*'
+    qds = input('Could you provide a wildcard (*) string for defocussing quadrupole used for tune correction (ex: QD*)? Press enter to use the default.')
+    if qds == '':
+        qds = 'QD2*'
+
+    d = dict(type= 'pyaml.arrays.magnet',
+            name= 'QForTune',
+            elements= [qfs, qds])
+    arrs.append(d)
+    
+    if extens=='json':
+        print('.json extension, avoid file extension')
+        modified_AT_file = f'${{path:{modified_AT_file}}}'
+
+    
     # create config files
     data = dict(
         type = 'pyaml.accelerator',
@@ -189,31 +287,18 @@ def generate_configuration(latticefile):
                 attribute_name = uuid
             )
         )],
-        controls = [dict(
-            type = f'{cs}.pyaml.controlsystem',
-            name = 'live'
-        )],
-        arrays = [dict(
-            type = 'pyaml.arrays.magnet',
-            name = 'some_quads',
-            elements = arr_q
-        ),
-        dict(
-            type = 'pyaml.arrays.magnet',
-            name = 'some_mags',
-            elements = arr_c
-        ),
-        dict(
-            type = 'pyaml.arrays.magnet',
-            name = 'some_bpms',
-            elements = arr_b
-        )],
+        controls = [contr],
+        arrays = arrs,
         devices = devs
         )
 
     # write files
     with open(f'./{config_file}', 'w') as config:
         yaml.dump(data, config, default_flow_style=False, sort_keys=False)
+
+    print(f'The file {config_file} is created and can be used by pyAML in ''design'' mode.\n ' \
+    'Some information still needs to be updated by hand.\n' \
+    ' Look for "your" in the file and replace with the correct values.\n')
 
     return config_file
 
@@ -222,13 +307,13 @@ if __name__ == '__main__':
 
     from pyaml_test_lattice import configurations, lattices
 
-    lattice_file = lattices["fodo_1gev_6d.json"]
+    lattice_file = lattices["fodo_1gev_6d.m"]
 
     # config_file = configurations["pyaml/tango/tango-pyaml/fodo_1gev_6d_pyaml.yaml"]
     # config_file = '/Users/liuzzo/Desktop/pyaml/configuration_generator/pyaml_vev/lib/python3.14/site-packages/pyaml_test_lattice/data/configuration/pyaml/tango/tango-pyaml/fodo_1gev_6d_pyaml.yaml'
     config_file = generate_configuration(lattice_file)
 
-    print(f'created test config file: {config_file}')
+    print(f'created test config file: {os.path.abspath(config_file)}')
 
     from pyaml.accelerator import Accelerator
         
