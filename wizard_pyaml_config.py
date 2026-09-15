@@ -25,19 +25,22 @@ def generate_configuration(latticefile):
     
     config_file = name + '_wizard.yml'
 
-    ans = input('The elements in your lattice file have a unique name attribute?')
+    ans = input('The elements in your lattice file have a unique name attribute (y/n)?')
 
     modified_AT_file = str(latticefile)
 
     if ans=='y':
        uuid = input('What is the name of the unique name attribute (Device, UUID, UniqueName, FamName, etc ..)?')
-    if ans=='n':
+    elif ans=='n':
         # add UUID with unique names. 
         for i, el in enumerate(r):
             el.UniqueID = el.FamName + f'{i:03d}'
         modified_AT_file = name + '_unique' + extens
         at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
         uuid = 'UniqueID'
+    else:
+        print('please answer y or n')
+        exit()
 
     # control system
 
@@ -59,12 +62,12 @@ def generate_configuration(latticefile):
     print(cs)
     
     if control_system =='Epics':
-            contr = dict(
-                type = f'{cs}.pyaml.controlsystem',
-                name = 'live',
-                backend= 'Epics',
-                prefix = 'your-epics-prefix:'
-                )
+            contr = {
+                'class': f'{cs}.controlsystem.OphydAsyncControlSystem',
+                'name' : 'live',
+                'backend': 'Epics',
+                'prefix': 'your-epics-prefix:'
+            }
     else:    # control_system == 'Tango':
         if cs=='pyaml_cs_oa':
             contr = {
