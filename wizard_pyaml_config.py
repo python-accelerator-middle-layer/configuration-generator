@@ -1,0 +1,244 @@
+# dependencies: 
+# pip install pytango
+# pip install tango-pyaml
+# pip install accelerator-middle-layer
+# pip install accelerator-toolbox
+# pip install pyyaml
+# pip install pyaml-test-lattice
+
+
+import os
+import at
+import yaml
+import numpy as np
+from os.path import exists
+
+def generate_configuration(latticefile):
+
+    print('DISCLAIMER: This wizards creates a configuration file that allows to test pyAML features. For a fully operational file, for CTRM, some more work will be needed with insigth from the specific facility.')
+
+    r = at.load_lattice(latticefile)
+
+    n = str(latticefile).split("/")
+
+    name, extens = os.path.splitext(n[-1])
+    
+    config_file = name + '_wizard.yml'
+
+    ans = input('The elements in your lattice file have a unique name attribute?')
+
+    modified_AT_file = str(latticefile)
+
+    if ans=='y':
+       uuid = input('What is the name of the unique name attribute (Device, UUID, UniqueName, FamName, etc ..)?')
+    if ans=='n':
+        # add UUID with unique names. 
+        for i, el in enumerate(r):
+            el.UniqueID = el.FamName + f'{i:03d}'
+        modified_AT_file = name + '_unique' + extens
+        at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
+        uuid = 'UniqueID'
+
+    ans = input('Which control system do you use (Epics/Tango)?')
+    if ans == 'Epics':
+        cs = 'pyaml_cs_oa'
+    elif ans == 'Tango':
+        cs = 'tango'
+    else:
+        raise ValueError('Either Epics or Tango')
+
+
+    # create an array with some quadrupoles
+    ind = r.get_uint32_index(at.Quadrupole)
+    arr_q = []
+    for i in ind[0:6]:
+        arr_q.append(r[i].__getattribute__(uuid))
+    
+    # create an array with some magnets (quad/sext)
+    ind = np.sort(np.concatenate((r.get_uint32_index(at.Quadrupole), r.get_uint32_index(at.Sextupole), r.get_uint32_index(at.Bend))))
+    arr_c = []
+    for i in ind[0:6]:
+        arr_c.append(r[i].__getattribute__(uuid))
+    
+    # create and array with some bpms
+    ind = r.get_uint32_index(at.Monitor)
+    arr_b = []
+    for i in ind[0:6]:
+        arr_b.append(r[i].__getattribute__(uuid))
+
+    # devices
+    
+    cal_dir = './calibrations'
+    if not os.path.exists(cal_dir):
+        os.makedirs(cal_dir)
+
+    devs = []
+    inds = np.sort(np.concatenate((r.get_uint32_index(at.Quadrupole), r.get_uint32_index(at.Sextupole), r.get_uint32_index(at.Bend), r.get_uint32_index(at.Monitor), r.get_uint32_index(at.RFCavity))))
+    for el in r[inds[0:20]]:
+
+        devname = f'/your/device/name/{el.__getattribute__(uuid)}'
+        d = dict()
+
+        if type(el)==at.Quadrupole:
+
+            quad_cal_file = './calibrations/quadrupole_curve.csv'
+            if not(exists(quad_cal_file)):
+                kl=el.PolynomB[1]*el.Length  # 1/m
+                curve = np.array([np.linspace(0,100,11),np.linspace(0, kl*2, 11)]).T
+                np.savetxt(quad_cal_file, curve) # A vs 1/m
+            
+
+            d = dict(type = f'pyaml.magnet.quadrupole',
+                    name = el.__getattribute__(uuid),
+                    model = dict(
+                        type= 'pyaml.magnet.linear_model',
+                        calibration_factor= 1.00054,
+                        crosstalk= 1.0,
+                        curve= dict(
+                            type= 'pyaml.magnet.csvcurve',
+                            file= quad_cal_file,
+                            ),
+                        unit= '1/m',
+                        hardware_unit= 'A',
+                        powerconverter= devname
+                    )
+                    ) 
+            
+        elif type(el)==at.Sextupole:
+
+            sext_cal_file = './calibrations/sextupole_curve.csv'
+            if not(exists(sext_cal_file)):
+                kl=el.PolynomB[1]*el.Length  # 1/m2
+                curve = np.array([np.linspace(0,100,11),np.linspace(0, kl*2, 11)]).T
+                np.savetxt(sext_cal_file, curve) # A vs 1/m2
+
+            d = dict(type = f'pyaml.magnet.sextupole',
+                    name = el.__getattribute__(uuid),
+                    model = dict(
+                        type= 'pyaml.magnet.linear_model',
+                        curve= dict(
+                            type= 'pyaml.magnet.csvcurve',
+                            file= sext_cal_file,
+                            ),
+                        unit= '1/m2',
+                        hardware_unit= 'A',
+                        powerconverter= devname
+                    )
+                    ) 
+            
+        elif type(el)==at.Monitor:
+            t = 'monitor'
+            d = dict(type = 'pyaml.bpm.bpm',
+                    name= el.__getattribute__(uuid),
+                    x_pos= devname,
+                    y_pos= devname
+                    )
+
+        elif type(el)==at.RFCavity:
+            t = 'rf.rf_transmitter'
+            d = dict(type= 'pyaml.rf.rf_plant',
+                    name= 'DEFAULT_RF_PLANT',
+                    masterclock = 'your/master/clock/device',
+                    transmitters= dict(
+                        type= 'pyaml.rf.rf_transmitter',
+                        name= 'RFTRA',
+                        cavities= el.__getattribute__(uuid),
+                        harmonic= 1,
+                        distribution= 1,
+                        voltage= 'your/voltage/device/name'),
+                        )
+
+        if d != dict():
+            devs.append(d)
+    
+
+    d=dict(type= 'pyaml.diagnostics.tune_monitor',
+            name= 'BETATRON_TUNE',
+            tune_h= 'your/beam-tune/main/Qh',
+            tune_v= 'your/beam-tune/main/Qv')
+    devs.append(d)
+    
+    d=dict(type= 'pyaml.tuning_tools.chromaticity_monitor',
+        name= 'CHROMATICITY_MONITOR',
+        betatron_tune_name= 'BETATRON_TUNE',
+        rf_plant_name= 'DEFAULT_RF_PLANT',
+        bpm_array_name= 'BPM',
+        n_step= 5)
+    devs.append(d)
+
+    d=dict( type= 'pyaml.tuning_tools.tune',
+        name= 'DEFAULT_TUNE_CORRECTION',
+        quad_array_name= 'some_quads',
+        betatron_tune_name= 'BETATRON_TUNE',
+        response_matrix= 'path/to/your/tune_response_matrix.csv')
+    devs.append(d)
+
+    # create config files
+    data = dict(
+        type = 'pyaml.accelerator',
+        facility = 'my facility',
+        machine = 'sr',
+        data_folder = '.',
+        energy = r.energy,
+        simulators = [dict(
+            type = 'pyaml.lattice.simulator',
+            lattice = modified_AT_file,
+            name = 'design',
+            linker = dict(
+                type = 'pyaml.lattice.attribute_linker',
+                attribute_name = uuid
+            )
+        )],
+        controls = [dict(
+            type = f'{cs}.pyaml.controlsystem',
+            name = 'live'
+        )],
+        arrays = [dict(
+            type = 'pyaml.arrays.magnet',
+            name = 'some_quads',
+            elements = arr_q
+        ),
+        dict(
+            type = 'pyaml.arrays.magnet',
+            name = 'some_mags',
+            elements = arr_c
+        ),
+        dict(
+            type = 'pyaml.arrays.magnet',
+            name = 'some_bpms',
+            elements = arr_b
+        )],
+        devices = devs
+        )
+
+    # write files
+    with open(f'./{config_file}', 'w') as config:
+        yaml.dump(data, config, default_flow_style=False, sort_keys=False)
+
+    return config_file
+
+
+if __name__ == '__main__':
+
+    from pyaml_test_lattice import configurations, lattices
+
+    lattice_file = lattices["fodo_1gev_6d.json"]
+
+    # config_file = configurations["pyaml/tango/tango-pyaml/fodo_1gev_6d_pyaml.yaml"]
+    # config_file = '/Users/liuzzo/Desktop/pyaml/configuration_generator/pyaml_vev/lib/python3.14/site-packages/pyaml_test_lattice/data/configuration/pyaml/tango/tango-pyaml/fodo_1gev_6d_pyaml.yaml'
+    config_file = generate_configuration(lattice_file)
+
+    print(f'created test config file: {config_file}')
+
+    from pyaml.accelerator import Accelerator
+        
+    accelerator = Accelerator.load(config_file)
+
+    # Get the quadrupole
+    quad = accelerator.design.magnet.get('QF_001001')
+
+    # Use the quadrupole in the same way as before
+    quad.strength.get()
+
+
+
