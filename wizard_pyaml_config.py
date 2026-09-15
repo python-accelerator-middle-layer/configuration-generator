@@ -13,6 +13,8 @@ import yaml
 import numpy as np
 from os.path import exists
 
+__authors__ = 'S.Liuzzo, J.-L. Pons, ESRF'
+
 def generate_configuration(latticefile):
 
     print('DISCLAIMER: This wizards creates a configuration file that allows to test pyAML features. For a fully operational file, for CTRM, some more work will be needed with insigth from the specific facility.')
@@ -44,45 +46,47 @@ def generate_configuration(latticefile):
 
     # control system
 
-    ans = input('Which control system do you use (Epics/Tango)?')
-    control_system = ans
-
-    if ans == 'Epics':
-        cs = 'pyaml_cs_oa'
-    elif ans == 'Tango':
-        ans = input('Would you like to use Ophyd Asynch (oa) or simply pyTango (t)?')
-        if ans == 'oa':
-            cs = 'pyaml_cs_oa'
-        else:
-            cs = 'tango'
-    else:
-        raise ValueError('Either Epics or Tango')
+    control_system = input('Which control system do you use (Epics / Tango / TangoOphydAsynch)?')
 
     print(control_system)
-    print(cs)
     
     if control_system =='Epics':
             contr = {
-                'class': f'{cs}.controlsystem.OphydAsyncControlSystem',
+                'class': f'pyaml_cs_oa.controlsystem.OphydAsyncControlSystem',
                 'name' : 'live',
                 'backend': 'Epics',
                 'prefix': 'your-epics-prefix:'
             }
-    else:    # control_system == 'Tango':
-        if cs=='pyaml_cs_oa':
+    elif control_system=='TangoOphydAsynch':
             contr = {
-                'class': f'{cs}.controlsystem.OphydAsyncControlSystem',
+                'class': f'pyaml_cs_oa.controlsystem.OphydAsyncControlSystem',
                 'name': 'live',
                 'backend': 'tango',
                 'prefix':'//your-host-name:10000/',
             }
-        else:
+    elif control_system=='Tango':
+            # data = [{'type': 'tango.pyaml.static_catalog_entry', 
+            #          'key': 'your-key',
+            #          'device': {
+            #                 'type': 'tango.pyaml.attribute_read_only',
+            #                 'attribute': 'your/attribute/name',
+            #                 'unit': 'm'}
+            #             }
+            #         ]
+            # with open(f'./catalog.yml', 'w') as cata:
+            #         yaml.dump(data, cata, default_flow_style=False, sort_keys=False)
+            
             contr = dict(
-                type = f'{cs}.pyaml.controlsystem',
+                type = f'tango.pyaml.controlsystem',
                 name = 'live',
-                tango_host = 'tango.host:10000',
-                catalog = 'your/catalog.yml'
+                tango_host = 'your.tango.host:10000',
+                catalog = {'type': 'tango.pyaml.tango_catalog',
+                #           'entries': './catalog.yml'
+                }
                 )
+    else:
+        raise ValueError('Either Epics or Tango or TangoOphydAsynch')
+
             
     # Devices
 
@@ -99,7 +103,7 @@ def generate_configuration(latticefile):
 
         if type(el)==at.Quadrupole:
 
-            quad_cal_file = './calibrations/quadrupole_curve.csv'
+            quad_cal_file = './calibrations/your_quadrupole_curve.csv'
             if not(exists(quad_cal_file)):
                 kl=el.PolynomB[1]*el.Length  # 1/m
                 curve = np.array([np.linspace(0,100,11),np.linspace(0, kl*2, 11)]).T
@@ -124,7 +128,7 @@ def generate_configuration(latticefile):
             
         elif type(el)==at.Sextupole:
 
-            sext_cal_file = './calibrations/sextupole_curve.csv'
+            sext_cal_file = './calibrations/your_sextupole_curve.csv'
             if not(exists(sext_cal_file)):
                 kl=el.PolynomB[1]*el.Length  # 1/m2
                 curve = np.array([np.linspace(0,100,11),np.linspace(0, kl*2, 11)]).T
@@ -308,16 +312,17 @@ def generate_configuration(latticefile):
 
 if __name__ == '__main__':
 
-    from pyaml_test_lattice import configurations, lattices
+    # get a lattice file
+    from pyaml_test_lattice import lattices
 
     lattice_file = lattices["fodo_1gev_6d.m"]
 
-    # config_file = configurations["pyaml/tango/tango-pyaml/fodo_1gev_6d_pyaml.yaml"]
-    # config_file = '/Users/liuzzo/Desktop/pyaml/configuration_generator/pyaml_vev/lib/python3.14/site-packages/pyaml_test_lattice/data/configuration/pyaml/tango/tango-pyaml/fodo_1gev_6d_pyaml.yaml'
+    # create the configuration
     config_file = generate_configuration(lattice_file)
 
     print(f'created test config file: {os.path.abspath(config_file)}')
 
+    # instantiate pyaml object based on the configuration 
     from pyaml.accelerator import Accelerator
         
     accelerator = Accelerator.load(config_file)
