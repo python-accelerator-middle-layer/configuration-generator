@@ -15,9 +15,24 @@ from os.path import exists
 
 __authors__ = 'S.Liuzzo, J.-L. Pons, ESRF'
 
-def generate_configuration(latticefile):
+def assign_uuid(r, name, extens):
+    for i, el in enumerate(r):
+        el.UniqueID = el.FamName + f'{i:03d}'
+    modified_AT_file = name + '_unique' + extens
+    at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
+    return r, modified_AT_file
 
-    print('DISCLAIMER: This wizards creates a configuration file that allows to test pyAML features. For a fully operational file, for CTRM, some more work will be needed with insigth from the specific facility.')
+def generate_configuration(latticefile, 
+                           wizard=False,
+                           uuid=None, 
+                           control_system='TangoOphydAsynch', 
+                           hcors='', 
+                           vcors='',
+                           bpms='',
+                           qds='',
+                           qfs=''):
+
+    print('DISCLAIMER: This function creates a configuration file that allows to test pyAML features. For a fully operational file, for CTRM, some more work will be needed with insigth from the specific facility.')
 
     r = at.load_lattice(latticefile)
 
@@ -27,26 +42,31 @@ def generate_configuration(latticefile):
     
     config_file = name + '_wizard.yml'
 
-    ans = input('The elements in your lattice file have a unique name attribute (y/n)?')
+    if wizard:
+        ans = input('The elements in your lattice file have a unique name attribute (y/n)?')
 
-    modified_AT_file = str(latticefile)
+        modified_AT_file = str(latticefile) # default AT file to input file
 
-    if ans=='y':
-       uuid = input('What is the name of the unique name attribute (Device, UUID, UniqueName, FamName, etc ..)?')
-    elif ans=='n':
-        # add UUID with unique names. 
-        for i, el in enumerate(r):
-            el.UniqueID = el.FamName + f'{i:03d}'
-        modified_AT_file = name + '_unique' + extens
-        at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
-        uuid = 'UniqueID'
+        if ans=='y':
+            uuid = input('What is the name of the unique name attribute (Device, UUID, UniqueName, FamName, etc ..)?')
+        elif ans=='n':
+            # add UUID with unique names and save a new file
+            r, modified_AT_file = assign_uuid(r, name, extens)
+            uuid = 'UniqueID'
+        else:
+            print('please answer y or n')
+            exit()
     else:
-        print('please answer y or n')
-        exit()
+        if uuid==None:
+            r, modified_AT_file = assign_uuid(r, name, extens)
+            uuid = 'UniqueID'
 
     # control system
-
-    control_system = input('Which control system do you use (Epics / Tango / TangoOphydAsynch)?')
+    if wizard:
+        control_system = input('Which control system do you use (Epics / Tango / TangoOphydAsynch)?')
+    else:
+        if control_system not in ['Epics', 'Tango', 'TangoOphydAsynch']:
+            raise ValueError('Either Epics or Tango or TangoOphydAsynch')
 
     print(control_system)
     
@@ -233,8 +253,8 @@ def generate_configuration(latticefile):
     #         name = 'some_bpms',
     #         elements = arr_b
     #     ))
-    
-    hcors = input('Could you provide a wildcard (*) string for Hor. correctors (ex: HCOR*)? Press enter to use the default.')
+    if wizard:
+        hcors = input('Could you provide a wildcard (*) string for Hor. correctors (ex: HCOR*)? Press enter to use the default.')
     if hcors == '':
         hcors = 'COR*'
 
@@ -243,7 +263,8 @@ def generate_configuration(latticefile):
             elements= [hcors])
     arrs.append(d)
 
-    vcors = input('Could you provide a wildcard (*) string for Ver. correctors (ex: VCOR*)? Press enter to use the default.')
+    if wizard:
+        vcors = input('Could you provide a wildcard (*) string for Ver. correctors (ex: VCOR*)? Press enter to use the default.')
     if vcors == '':
         vcors = 'COR*'
 
@@ -251,8 +272,8 @@ def generate_configuration(latticefile):
             name= 'VCorr',
             elements= [vcors])
     arrs.append(d)
-
-    bpms = input('Could you provide a wildcard (*) string for bpms (ex: BPM*)? Press enter to use the default.')
+    if wizard:
+        bpms = input('Could you provide a wildcard (*) string for bpms (ex: BPM*)? Press enter to use the default.')
     if bpms == '':
         bpms = 'BPM*'
     
@@ -261,10 +282,12 @@ def generate_configuration(latticefile):
             elements= [bpms])
     arrs.append(d)
 
-    qfs = input('Could you provide a wildcard (*) string for focussing quadrupole used for tune correction (ex: QF*)? Press enter to use the default.')
+    if wizard:
+        qfs = input('Could you provide a wildcard (*) string for focussing quadrupole used for tune correction (ex: QF*)? Press enter to use the default.')
     if qfs == '':
         qfs = 'QF1*'
-    qds = input('Could you provide a wildcard (*) string for defocussing quadrupole used for tune correction (ex: QD*)? Press enter to use the default.')
+    if wizard:
+        qds = input('Could you provide a wildcard (*) string for defocussing quadrupole used for tune correction (ex: QD*)? Press enter to use the default.')
     if qds == '':
         qds = 'QD2*'
 
