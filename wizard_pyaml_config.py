@@ -22,6 +22,35 @@ def assign_uuid(r, name, extens):
     at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
     return r, modified_AT_file
 
+def cor_to_thinmpole_pass(r, modified_AT_file):
+
+    name, extens = os.path.splitext(modified_AT_file)
+    print(name)
+
+    save_new_file = False
+    for i, el in enumerate(r):
+        if el.PassMethod == 'CorrectorPass':
+            save_new_file = True
+            print(f'found corrector pass for el {el.FamName}')
+            
+            PolynomA = [0.0]
+            PolynomB = [0.0]
+                        
+            if el.Length == 0.0:
+                PolynomB[0] = el.KickAngle[0]
+                PolynomA[0] = el.KickAngle[1]
+            else:
+                PolynomB[0] = el.KickAngle[0] / el.Length
+                PolynomA[0] = el.KickAngle[1] / el.Length
+
+            r[i] = at.ThinMultipole(el.FamName, PolynomA, PolynomB)
+            
+    if save_new_file:
+        modified_AT_file = name + '_pass' + extens
+        at.save_lattice(r, modified_AT_file) # save to the same format of the initial file
+    return r, modified_AT_file
+
+
 def generate_configuration(latticefile, 
                            wizard=False,
                            uuid=None, 
@@ -42,6 +71,7 @@ def generate_configuration(latticefile,
     
     config_file = name + '_wizard.yml'
 
+    # assign UUID if needed
     if wizard:
         ans = input('The elements in your lattice file have a unique name attribute (y/n)?')
 
@@ -60,6 +90,9 @@ def generate_configuration(latticefile,
         if uuid==None:
             r, modified_AT_file = assign_uuid(r, name, extens)
             uuid = 'UniqueID'
+
+    # change CorrectorPass to ThinMPolePass and move KickAngle to PolynomA/B
+    r, modified_AT_file = cor_to_thinmpole_pass(r, modified_AT_file)
 
     # control system
     if wizard:
